@@ -17,9 +17,10 @@ const MAX_ASSET_SIZE = 32000;
 
 const ENABLE_JS_MINIFICATION = true;
 
-// Dev server target — in dev mode proxy to llama-server directly;
-// in prod the FastAPI backend at :5000 handles the proxy.
-const LLAMA_SERVER = process.env.LLAMA_SERVER ?? 'http://localhost:11434';
+// Dev server target — route through mitmweb reverse proxy at :8080 so all
+// model API calls are visible in the mitmweb UI (http://localhost:8081).
+// mitmweb forwards to llama-router at :11434. Override with LLAMA_SERVER env var.
+const LLAMA_SERVER = process.env.LLAMA_SERVER ?? 'http://localhost:8080';
 
 export default defineConfig({
 	resolve: {
