@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sn-llama-counsel"
+version = "0.1.0"
+description = "AI Counsel for llama.cpp — parallel multi-LLM panel with chairperson synthesis"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["llama", "llm", "ai", "counsel", "multi-agent", "llama.cpp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+llama-counsel = "sn_llama_counsel.backend.main:main"
+
+[project.urls]
+Homepage = "https://github.com/SeKondBrainAILabs/sn_llama_counsel"
+Repository = "https://github.com/SeKondBrainAILabs/sn_llama_counsel"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sn_llama_counsel"]
+
+[tool.hatch.build]
+include = [
+    "sn_llama_counsel/**",
+    "counsels/**",
+    "config.yaml",
+]

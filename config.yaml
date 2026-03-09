@@ -1,0 +1,14 @@
+# sn_llama_counsel configuration
+# Override any value with environment variables:
+#   LLAMA_API_BASE, LLAMA_API_KEY, LLAMA_DEFAULT_MODEL
+
+# llama-server (or any OpenAI-compatible endpoint)
+api_base: http://localhost:11434
+
+# API key — use "none" for local llama-server without auth
+# Use "sk-llama" if you're routing through LiteLLM proxy (:4000)
+api_key: none
+
+# Model used for auto-select (chairperson LLM for council selection)
+# Should be fast and instruction-following
+default_model: llama-3.1-8b-instant
