@@ -165,7 +165,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="sn_llama_counsel server")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--port", type=int, default=5050)
     parser.add_argument("--reload", action="store_true", help="Dev mode auto-reload")
     args = parser.parse_args()
 
