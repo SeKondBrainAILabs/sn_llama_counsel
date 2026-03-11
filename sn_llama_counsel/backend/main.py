@@ -191,7 +191,22 @@ async def _proxy_request(request: Request, path: str) -> StreamingResponse:
 
 @app.api_route("/props", methods=["GET"])
 async def proxy_props(request: Request):
-    return await _proxy_request(request, "props")
+    """Proxy /props to llama-server; return a fallback if unreachable."""
+    try:
+        return await _proxy_request(request, "props")
+    except HTTPException:
+        # llama-server not running — return minimal router-mode props
+        # so the Svelte UI doesn't show "Server unavailable" and counsel still works
+        return JSONResponse({
+            "role": "router",
+            "total_slots": 0,
+            "model_path": "",
+            "chat_template": "",
+            "default_generation_settings": {
+                "n_ctx": 4096,
+                "params": {},
+            },
+        })
 
 
 @app.api_route("/models", methods=["GET"])

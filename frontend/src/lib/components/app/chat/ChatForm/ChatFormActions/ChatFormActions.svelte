@@ -227,7 +227,7 @@
 	</div>
 
 	<div class="ml-auto flex items-center gap-1.5">
-		<CounselChatSelector disabled={disabled || isOffline} />
+		<CounselChatSelector {disabled} />
 
 		{#if !counselStore.isCounselMode}
 			{#if isMobile.current}
