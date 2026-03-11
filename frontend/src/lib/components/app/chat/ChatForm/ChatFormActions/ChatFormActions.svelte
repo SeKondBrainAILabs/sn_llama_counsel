@@ -143,6 +143,7 @@
 	);
 
 	let isSelectedModelInCache = $derived.by(() => {
+		if (counselStore.isCounselMode) return true;
 		if (!isRouter) return true;
 
 		if (conversationModel) {
