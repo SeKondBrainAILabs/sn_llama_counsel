@@ -28,6 +28,7 @@
 	import { config } from '$lib/stores/settings.svelte';
 	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
+	import { counselStore } from '$lib/stores/counsel.svelte';
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { mcpStore } from '$lib/stores/mcp.svelte';
 	import { mcpHasResourceAttachments } from '$lib/stores/mcp-resources.svelte';
@@ -159,7 +160,7 @@
 	});
 
 	// Form Validation State
-	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
+	let hasModelSelected = $derived(counselStore.isCounselMode || !isRouter || !!conversationModel || !!selectedModelId());
 	let hasLoadingAttachments = $derived(uploadedFiles.some((f) => f.isLoading));
 	let hasAttachments = $derived(
 		(attachments && attachments.length > 0) || (uploadedFiles && uploadedFiles.length > 0)
