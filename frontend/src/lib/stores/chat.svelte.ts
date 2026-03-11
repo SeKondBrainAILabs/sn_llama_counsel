@@ -735,12 +735,17 @@ class ChatStore {
 		// ── Counsel mode: route through /api/counsel/run instead ────────
 		if (counselStore.isCounselMode && counselStore.selectedForChat) {
 			const lastUserMsg = allMessages.filter((m) => m.role === MessageRole.USER).pop();
+			// Extract file content parts from user message extras
+			const fileParts = this.extractFilePartsFromExtras(
+				(lastUserMsg as DatabaseMessage | undefined)?.extra
+			);
 			await this.streamCounselCompletion(
 				lastUserMsg?.content || '',
 				counselStore.selectedForChat,
 				assistantMessage,
 				abortController,
-				streamCallbacks
+				streamCallbacks,
+				fileParts.length > 0 ? fileParts : undefined
 			);
 			return;
 		}
@@ -764,12 +769,38 @@ class ChatStore {
 	// Member tokens update the live deliberation panel; synthesis tokens
 	// feed into the same appendContentChunk() pipeline as normal chat.
 
+	/** Extract image/text/pdf file parts from DatabaseMessageExtra[] for counsel POST body. */
+	private extractFilePartsFromExtras(
+		extras?: DatabaseMessageExtra[]
+	): Array<{ type: string; text?: string; image_url?: { url: string } }> {
+		if (!extras || extras.length === 0) return [];
+		const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+		for (const extra of extras) {
+			if (extra.type === 'IMAGE' && 'base64Url' in extra) {
+				parts.push({ type: 'image_url', image_url: { url: extra.base64Url } });
+			} else if (extra.type === 'TEXT' && 'content' in extra) {
+				parts.push({ type: 'text', text: `\n\n--- File: ${extra.name} ---\n${extra.content}` });
+			} else if (extra.type === 'PDF' && 'content' in extra) {
+				if ('processedAsImages' in extra && extra.processedAsImages && 'images' in extra && extra.images) {
+					for (const img of extra.images) {
+						parts.push({ type: 'image_url', image_url: { url: img } });
+					}
+				} else {
+					parts.push({ type: 'text', text: `\n\n--- PDF: ${extra.name} ---\n${extra.content}` });
+				}
+			}
+			// Skip AUDIO, MCP_PROMPT, etc. — not useful for counsel text analysis
+		}
+		return parts;
+	}
+
 	private async streamCounselCompletion(
 		task: string,
 		counsel: CounselConfig,
 		assistantMessage: DatabaseMessage,
 		abortController: AbortController,
-		callbacks: ChatStreamCallbacks
+		callbacks: ChatStreamCallbacks,
+		files?: Array<{ type: string; text?: string; image_url?: { url: string } }>
 	): Promise<void> {
 		// Initialize transient streaming state
 		counselStore.chatStatus = 'running_members';
@@ -785,10 +816,14 @@ class ChatStore {
 		conversationsStore.updateMessageAtIndex(idx0, { model: counsel.chairperson.model });
 
 		try {
+			const body: Record<string, unknown> = { task, counsel };
+			if (files && files.length > 0) {
+				body.files = files;
+			}
 			const res = await fetch('/api/counsel/run', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ task, counsel }),
+				body: JSON.stringify(body),
 				signal: abortController.signal
 			});
 

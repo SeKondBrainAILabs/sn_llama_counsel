@@ -33,15 +33,23 @@ async def _stream_member(
     api_key: str,
     member: CounselMember,
     task: str,
+    files: list[dict] | None,
     queue: asyncio.Queue,
 ) -> str:
     """Stream a single member's response, pushing SSE chunks into *queue*.
     Returns the full accumulated response text."""
     full_text = ""
     try:
+        # Build multipart content when files are attached
+        if files:
+            user_content: list[dict] | str = [{"type": "text", "text": task}]
+            user_content.extend(files)
+        else:
+            user_content = task
+
         messages = [
             {"role": "system", "content": member.system},
-            {"role": "user", "content": task},
+            {"role": "user", "content": user_content},
         ]
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {
@@ -149,6 +157,7 @@ async def run_counsel(
     counsel: CounselConfig,
     api_base: str,
     api_key: str,
+    files: list[dict] | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Main SSE generator for a counsel run.
@@ -161,7 +170,7 @@ async def run_counsel(
         # ── Phase 1: Fan out to all members concurrently ──────────────────
         tasks = [
             asyncio.create_task(
-                _stream_member(client, api_base, api_key, member, task, queue)
+                _stream_member(client, api_base, api_key, member, task, files, queue)
             )
             for member in counsel.members
         ]

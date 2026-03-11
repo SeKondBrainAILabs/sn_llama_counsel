@@ -228,6 +228,10 @@
 		fileInputRef?.click();
 	}
 
+	function handleFolderUpload() {
+		fileInputRef?.clickFolder();
+	}
+
 	function handleFileRemove(fileId: string) {
 		if (fileId.startsWith('attachment-')) {
 			const index = parseInt(fileId.replace('attachment-', ''), 10);
@@ -627,6 +631,7 @@
 				{isRecording}
 				{uploadedFiles}
 				onFileUpload={handleFileUpload}
+				onFolderUpload={handleFolderUpload}
 				onMicClick={handleMicClick}
 				{onStop}
 				onSystemPromptClick={() => onSystemPromptClick?.({ message: value, files: uploadedFiles })}

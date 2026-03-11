@@ -26,7 +26,7 @@ export {
 export { parseFilesToMessageExtras } from './convert-files-to-extra';
 
 // File upload processing utilities (depends on pdf-processing, svg-to-png, webp-to-png)
-export { processFilesToChatUploaded } from './process-uploaded-files';
+export { processFilesToChatUploaded, filterFolderFiles } from './process-uploaded-files';
 
 // SVG utilities (Canvas/Image API)
 export { svgBase64UrlToPngDataURL, isSvgFile, isSvgMimeType } from './svg-to-png';

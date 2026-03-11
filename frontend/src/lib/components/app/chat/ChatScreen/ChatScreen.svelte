@@ -33,7 +33,7 @@
 	import { counselStore } from '$lib/stores/counsel.svelte';
 	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { isFileTypeSupported, filterFilesByModalities } from '$lib/utils';
-	import { parseFilesToMessageExtras, processFilesToChatUploaded } from '$lib/utils/browser-only';
+	import { parseFilesToMessageExtras, processFilesToChatUploaded, filterFolderFiles } from '$lib/utils/browser-only';
 	import { ErrorDialogType } from '$lib/enums';
 	import { onMount } from 'svelte';
 	import { fade, fly, slide } from 'svelte/transition';
@@ -265,14 +265,30 @@
 	}
 
 	async function processFiles(files: File[]) {
+		let filesToProcess = files;
+
+		// Detect folder upload (files from webkitdirectory have webkitRelativePath)
+		const isFolderUpload = files.length > 0 && files[0].webkitRelativePath;
+		if (isFolderUpload) {
+			filesToProcess = filterFolderFiles(files);
+			// Rename files to include relative path so counsel members see directory structure
+			filesToProcess = filesToProcess.map((file) => {
+				const relativePath = file.webkitRelativePath || file.name;
+				return new File([file], relativePath, { type: file.type || 'text/plain' });
+			});
+		}
+
 		const generallySupported: File[] = [];
 		const generallyUnsupported: File[] = [];
 
-		for (const file of files) {
+		for (const file of filesToProcess) {
 			if (isFileTypeSupported(file.name, file.type)) {
 				generallySupported.push(file);
 			} else {
-				generallyUnsupported.push(file);
+				// For folder uploads, skip unsupported files silently instead of showing error
+				if (!isFolderUpload) {
+					generallyUnsupported.push(file);
+				}
 			}
 		}
 

@@ -83,6 +83,36 @@ class CounselStore {
 	error = $state<string | null>(null);
 	autoSelectLoading = $state(false);
 
+	// ── Counsel creation state ──────────────────────────────────────────
+	createLoading = $state(false);
+	createError = $state<string | null>(null);
+
+	async createCounsel(description: string): Promise<CounselConfig | null> {
+		this.createLoading = true;
+		this.createError = null;
+		try {
+			const res = await fetch('/api/counsel/create', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ description })
+			});
+			if (!res.ok) {
+				const txt = await res.text();
+				throw new Error(`HTTP ${res.status}: ${txt}`);
+			}
+			const newCounsel: CounselConfig = await res.json();
+			// Refresh the list to include the new counsel
+			await this.refreshCounsels();
+			return newCounsel;
+		} catch (e) {
+			this.createError = e instanceof Error ? e.message : String(e);
+			console.error('[counsel] creation failed:', e);
+			return null;
+		} finally {
+			this.createLoading = false;
+		}
+	}
+
 	private abortController: AbortController | null = null;
 
 	get synthesisText(): string {

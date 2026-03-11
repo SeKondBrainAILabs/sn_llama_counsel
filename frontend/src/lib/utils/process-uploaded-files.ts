@@ -35,6 +35,126 @@ function readFileAsUTF8(file: File): Promise<string> {
 	});
 }
 
+// ── Folder attachment filtering ──────────────────────────────────────────
+
+/** Directories and file patterns to skip when attaching folders. */
+const FOLDER_IGNORE_PATTERNS = [
+	'node_modules/',
+	'.git/',
+	'.svn/',
+	'__pycache__/',
+	'.next/',
+	'.cache/',
+	'dist/',
+	'build/',
+	'.DS_Store',
+	'package-lock.json',
+	'yarn.lock',
+	'pnpm-lock.yaml',
+	'.env',
+	'.wasm',
+	'.venv/',
+	'.tox/',
+	'coverage/',
+	'.nyc_output/'
+];
+
+const BINARY_EXTENSIONS = new Set([
+	'.png',
+	'.jpg',
+	'.jpeg',
+	'.gif',
+	'.bmp',
+	'.ico',
+	'.webp',
+	'.svg',
+	'.mp3',
+	'.wav',
+	'.ogg',
+	'.mp4',
+	'.mov',
+	'.avi',
+	'.mkv',
+	'.zip',
+	'.tar',
+	'.gz',
+	'.rar',
+	'.7z',
+	'.exe',
+	'.dll',
+	'.so',
+	'.dylib',
+	'.o',
+	'.a',
+	'.woff',
+	'.woff2',
+	'.ttf',
+	'.eot',
+	'.otf',
+	'.pyc',
+	'.pyo',
+	'.class',
+	'.gguf',
+	'.bin',
+	'.weights'
+]);
+
+/** Max files to keep from a single folder upload (to avoid context overflow). */
+const MAX_FOLDER_FILES = 50;
+
+/** Max single-file size (500KB). */
+const MAX_FILE_SIZE = 500 * 1024;
+
+/**
+ * Filter folder-selected files: skip ignored dirs, binaries, large/empty files.
+ * Returns at most MAX_FOLDER_FILES sorted by path.
+ */
+export function filterFolderFiles(files: File[]): File[] {
+	const filtered = files.filter((file) => {
+		const path = file.webkitRelativePath || file.name;
+
+		// Skip ignored directories/files
+		if (FOLDER_IGNORE_PATTERNS.some((pattern) => path.includes(pattern))) {
+			return false;
+		}
+
+		// Skip binary files by extension
+		const dotIdx = path.lastIndexOf('.');
+		if (dotIdx !== -1) {
+			const ext = path.slice(dotIdx).toLowerCase();
+			if (BINARY_EXTENSIONS.has(ext)) {
+				return false;
+			}
+		}
+
+		// Skip oversized files
+		if (file.size > MAX_FILE_SIZE) {
+			return false;
+		}
+
+		// Skip empty files
+		if (file.size === 0) {
+			return false;
+		}
+
+		return true;
+	});
+
+	// Sort by path for consistent ordering, cap at limit
+	filtered.sort((a, b) =>
+		(a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name)
+	);
+
+	if (filtered.length > MAX_FOLDER_FILES) {
+		console.warn(
+			`[folder] Capped from ${filtered.length} to ${MAX_FOLDER_FILES} files`
+		);
+		return filtered.slice(0, MAX_FOLDER_FILES);
+	}
+
+	return filtered;
+}
+
 /**
  * Process uploaded files into ChatUploadedFile format with previews and content
  *

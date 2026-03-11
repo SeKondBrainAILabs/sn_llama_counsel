@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Scale, ChevronDown, X, Loader2 } from '@lucide/svelte';
+	import { Scale, ChevronDown, X, Loader2, Plus } from '@lucide/svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { cn } from '$lib/components/ui/utils';
 	import { counselStore } from '$lib/stores/counsel.svelte';
+	import CreateCounselDialog from './CreateCounselDialog.svelte';
 
 	interface Props {
 		class?: string;
@@ -13,6 +14,7 @@
 	let { class: className = '', disabled = false }: Props = $props();
 
 	let isOpen = $state(false);
+	let showCreateDialog = $state(false);
 
 	onMount(() => {
 		counselStore.fetchCounsels();
@@ -26,6 +28,11 @@
 	function handleClear(e: MouseEvent) {
 		e.stopPropagation();
 		counselStore.clearChatSelection();
+	}
+
+	function handleCreateClick() {
+		isOpen = false;
+		showCreateDialog = true;
 	}
 
 	let selected = $derived(counselStore.selectedForChat);
@@ -105,6 +112,15 @@
 					</DropdownMenu.Item>
 				{/each}
 			{/if}
+
+			<DropdownMenu.Separator />
+			<DropdownMenu.Item
+				class="flex items-center gap-2 text-xs"
+				onclick={handleCreateClick}
+			>
+				<Plus class="h-3.5 w-3.5" />
+				Create new counsel...
+			</DropdownMenu.Item>
 		</DropdownMenu.Content>
 	</DropdownMenu.Root>
 
@@ -119,3 +135,5 @@
 		</button>
 	{/if}
 </div>
+
+<CreateCounselDialog bind:open={showCreateDialog} />

@@ -33,6 +33,7 @@
 		hasText?: boolean;
 		uploadedFiles?: ChatUploadedFile[];
 		onFileUpload?: () => void;
+		onFolderUpload?: () => void;
 		onMicClick?: () => void;
 		onStop?: () => void;
 		onSystemPromptClick?: () => void;
@@ -49,6 +50,7 @@
 		hasText = false,
 		uploadedFiles = [],
 		onFileUpload,
+		onFolderUpload,
 		onMicClick,
 		onStop,
 		onSystemPromptClick,
@@ -214,6 +216,7 @@
 				{hasMcpPromptsSupport}
 				{hasMcpResourcesSupport}
 				{onFileUpload}
+				{onFolderUpload}
 				{onSystemPromptClick}
 				{onMcpPromptClick}
 				{onMcpResourcesClick}

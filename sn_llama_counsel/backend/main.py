@@ -17,8 +17,10 @@ Serves:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -29,7 +31,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .runner import run_counsel
-from .schemas import AutoSelectRequest, AutoSelectResponse, CounselConfig, RunRequest
+from .schemas import (
+    AutoSelectRequest, AutoSelectResponse, CounselConfig,
+    CreateCounselRequest, RunRequest,
+)
 from .selector import auto_select_counsel
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
@@ -123,8 +128,12 @@ async def counsel_run(req: RunRequest):
       data: {"type": "done"}
       data: {"type": "error",           "error": "..."}
     """
+    files_data = (
+        [part.model_dump(exclude_none=True) for part in req.files]
+        if req.files else None
+    )
     return StreamingResponse(
-        run_counsel(req.task, req.counsel, API_BASE, API_KEY),
+        run_counsel(req.task, req.counsel, API_BASE, API_KEY, files_data),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -142,6 +151,127 @@ async def counsel_auto_select(req: AutoSelectRequest):
         req.task, _counsels, DEFAULT_MODEL, API_BASE, API_KEY
     )
     return AutoSelectResponse(counsel=selected)
+
+
+# ── Counsel creation ─────────────────────────────────────────────────────
+
+_COUNSEL_CREATION_SYSTEM = """\
+You are an expert at designing AI advisory panels (called "counsels").
+Given a natural language description, design a counsel configuration.
+Respond ONLY with a valid JSON object matching this schema:
+{
+  "name": "lowercase_snake_case_name",
+  "description": "one-line description of what this counsel does",
+  "chairperson": {
+    "model": "<model_name>",
+    "system": "system prompt for the chairperson who synthesizes member responses"
+  },
+  "members": [
+    {
+      "model": "<model_name>",
+      "role": "Role Title",
+      "system": "detailed system prompt for this expert role"
+    }
+  ]
+}
+
+Available models (use ONLY these):
+- qwq-32b (best for reasoning and deep analysis, slower)
+- llama-3.3-70b-versatile (best general-purpose, fast)
+- llama-3.1-8b-instant (fastest, good for focused tasks)
+- qwen/qwen3-32b (strong reasoning, good at structured output)
+
+Guidelines:
+- Design 2-4 members with complementary, non-overlapping perspectives
+- Make system prompts specific and detailed (at least 3 sentences each)
+- The chairperson should synthesize, not repeat — it merges member insights
+- Use qwq-32b or llama-3.3-70b-versatile for the chairperson
+- Pick member models based on task complexity
+
+Respond with ONLY valid JSON, no markdown fences, no other text."""
+
+
+@app.post("/api/counsel/create", response_model=CounselConfig)
+async def counsel_create(req: CreateCounselRequest):
+    """Use an LLM to design a counsel from a natural language description."""
+    global _counsels
+
+    model = DEFAULT_MODEL
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _COUNSEL_CREATION_SYSTEM},
+            {"role": "user", "content": f"Design a counsel for: {req.description}"},
+        ],
+        "stream": False,
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{API_BASE}/v1/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"].strip()
+
+            # Strip markdown fences if present
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+            # Also handle trailing fences
+            if "```" in content:
+                content = content.split("```")[0]
+
+            counsel_data = json.loads(content)
+            config = CounselConfig(**counsel_data)
+
+            # Ensure name is a valid filename
+            safe_name = re.sub(r"[^a-z0-9_]", "_", config.name.lower().strip())
+            if not safe_name:
+                safe_name = "custom_counsel"
+            counsel_data["name"] = safe_name
+            config = CounselConfig(**counsel_data)
+
+            # Handle duplicate names
+            filepath = COUNSELS_DIR / f"{safe_name}.yaml"
+            if filepath.exists():
+                i = 2
+                while (COUNSELS_DIR / f"{safe_name}_{i}.yaml").exists():
+                    i += 1
+                safe_name = f"{safe_name}_{i}"
+                counsel_data["name"] = safe_name
+                config = CounselConfig(**counsel_data)
+                filepath = COUNSELS_DIR / f"{safe_name}.yaml"
+
+            # Save to YAML
+            COUNSELS_DIR.mkdir(parents=True, exist_ok=True)
+            with open(filepath, "w") as f:
+                yaml.dump(counsel_data, f, default_flow_style=False, sort_keys=False)
+
+            logger.info("Created new counsel: %s → %s", safe_name, filepath)
+
+            # Reload counsels list
+            _counsels = _load_counsels()
+
+            return config
+
+    except json.JSONDecodeError as exc:
+        logger.error("Counsel creation: LLM returned invalid JSON: %s", exc)
+        raise HTTPException(
+            status_code=422, detail=f"LLM returned invalid JSON: {exc}"
+        ) from exc
+    except Exception as exc:
+        logger.error("Counsel creation failed: %s", exc)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create counsel: {exc}"
+        ) from exc
 
 
 # ── Reverse proxy to llama-server ──────────────────────────────────────────

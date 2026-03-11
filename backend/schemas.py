@@ -22,9 +22,21 @@ class CounselConfig(BaseModel):
     members: list[CounselMember]
 
 
+class ContentPart(BaseModel):
+    """OpenAI-compatible content part (text or image_url)."""
+    type: str
+    text: Optional[str] = None
+    image_url: Optional[dict] = None
+
+
 class RunRequest(BaseModel):
     task: str = Field(..., min_length=1)
     counsel: CounselConfig
+    files: Optional[list[ContentPart]] = None
+
+
+class CreateCounselRequest(BaseModel):
+    description: str = Field(..., min_length=10)
 
 
 class AutoSelectRequest(BaseModel):

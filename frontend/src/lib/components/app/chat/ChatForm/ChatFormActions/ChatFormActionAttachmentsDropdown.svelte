@@ -21,6 +21,7 @@
 		hasMcpPromptsSupport?: boolean;
 		hasMcpResourcesSupport?: boolean;
 		onFileUpload?: () => void;
+		onFolderUpload?: () => void;
 		onSystemPromptClick?: () => void;
 		onMcpPromptClick?: () => void;
 		onMcpSettingsClick?: () => void;
@@ -35,6 +36,7 @@
 		hasMcpPromptsSupport = false,
 		hasMcpResourcesSupport = false,
 		onFileUpload,
+		onFolderUpload,
 		onSystemPromptClick,
 		onMcpPromptClick,
 		onMcpSettingsClick,
@@ -214,6 +216,17 @@
 					</Tooltip.Content>
 				</Tooltip.Root>
 			{/if}
+
+			<DropdownMenu.Item
+				class="flex cursor-pointer items-center gap-2"
+				onclick={() => onFolderUpload?.()}
+			>
+				<FolderOpen class="h-4 w-4" />
+
+				<span>Attach Folder</span>
+			</DropdownMenu.Item>
+
+			<DropdownMenu.Separator />
 
 			<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
 				<Tooltip.Trigger class="w-full">
