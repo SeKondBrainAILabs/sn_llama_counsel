@@ -115,17 +115,6 @@
 			<h1 class="inline-flex items-center gap-1 px-2 text-xl font-semibold">llama.cpp</h1>
 		</a>
 
-		<!-- Counsel nav link -->
-		<a
-			href="#/counsel"
-			onclick={handleMobileSidebarItemClick}
-			class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground {page.route.id?.startsWith('/counsel') ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'}"
-		>
-			<span>⚖</span>
-			<span>Counsel</span>
-			<span class="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">★</span>
-		</a>
-
 		<ChatSidebarActions {handleMobileSidebarItemClick} bind:isSearchModeActive bind:searchQuery />
 	</Sidebar.Header>
 

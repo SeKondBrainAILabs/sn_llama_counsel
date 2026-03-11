@@ -10,6 +10,8 @@
 		ModelsSelector,
 		ModelsSelectorSheet
 	} from '$lib/components/app';
+	import CounselChatSelector from '$lib/components/app/counsel/CounselChatSelector.svelte';
+	import { counselStore } from '$lib/stores/counsel.svelte';
 	import { DialogChatSettings } from '$lib/components/app/dialogs';
 	import { SETTINGS_SECTION_TITLES } from '$lib/constants';
 	import { mcpStore } from '$lib/stores/mcp.svelte';
@@ -136,7 +138,9 @@
 		hasAudioModality && !hasText && !hasAudioAttachments && currentConfig.autoMicOnEmpty
 	);
 
-	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
+	let hasModelSelected = $derived(
+		counselStore.isCounselMode || !isRouter || !!conversationModel || !!selectedModelId()
+	);
 
 	let isSelectedModelInCache = $derived.by(() => {
 		if (!isRouter) return true;
@@ -223,22 +227,26 @@
 	</div>
 
 	<div class="ml-auto flex items-center gap-1.5">
-		{#if isMobile.current}
-			<ModelsSelectorSheet
-				disabled={disabled || isOffline}
-				bind:this={selectorModelRef}
-				currentModel={conversationModel}
-				forceForegroundText
-				useGlobalSelection
-			/>
-		{:else}
-			<ModelsSelector
-				disabled={disabled || isOffline}
-				bind:this={selectorModelRef}
-				currentModel={conversationModel}
-				forceForegroundText
-				useGlobalSelection
-			/>
+		<CounselChatSelector disabled={disabled || isOffline} />
+
+		{#if !counselStore.isCounselMode}
+			{#if isMobile.current}
+				<ModelsSelectorSheet
+					disabled={disabled || isOffline}
+					bind:this={selectorModelRef}
+					currentModel={conversationModel}
+					forceForegroundText
+					useGlobalSelection
+				/>
+			{:else}
+				<ModelsSelector
+					disabled={disabled || isOffline}
+					bind:this={selectorModelRef}
+					currentModel={conversationModel}
+					forceForegroundText
+					useGlobalSelection
+				/>
+			{/if}
 		{/if}
 	</div>
 

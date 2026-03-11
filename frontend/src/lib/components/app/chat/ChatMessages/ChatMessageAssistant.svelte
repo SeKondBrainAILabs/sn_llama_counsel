@@ -7,10 +7,12 @@
 		ModelBadge,
 		ModelsSelector
 	} from '$lib/components/app';
+	import CounselDeliberationPanel from '$lib/components/app/counsel/CounselDeliberationPanel.svelte';
 	import { getMessageEditContext } from '$lib/contexts';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import { isLoading, isChatStreaming } from '$lib/stores/chat.svelte';
 	import { agenticStreamingToolCall } from '$lib/stores/agentic.svelte';
+	import { counselStore, type CounselDeliberation } from '$lib/stores/counsel.svelte';
 	import { autoResizeTextarea, copyToClipboard, isIMEComposing } from '$lib/utils';
 	import { tick } from 'svelte';
 	import { fade } from 'svelte/transition';
@@ -98,6 +100,17 @@
 
 	let currentConfig = $derived(config());
 	let isRouter = $derived(isRouterMode());
+
+	// ── Counsel deliberation ───────────────────────────────────────
+	let counselDeliberation = $derived(
+		(message.extra as unknown[])?.find(
+			(e: any) => e && typeof e === 'object' && 'type' in e && e.type === 'counsel_deliberation'
+		) as CounselDeliberation | undefined
+	);
+	let isCounselStreaming = $derived(
+		isLastAssistantMessage && counselStore.chatStatus !== 'idle' && counselStore.chatStatus !== 'done'
+	);
+	let showCounselPanel = $derived(!!counselDeliberation || isCounselStreaming);
 	let showRawOutput = $state(false);
 	let activeStatsView = $state<ChatMessageStatsView>(ChatMessageStatsView.GENERATION);
 	let statsContainerEl: HTMLDivElement | undefined = $state();
@@ -254,6 +267,13 @@
 			</div>
 		</div>
 	{:else if message.role === MessageRole.ASSISTANT}
+		{#if showCounselPanel}
+			<CounselDeliberationPanel
+				deliberation={counselDeliberation}
+				liveMembers={isCounselStreaming ? counselStore.chatMemberResponses : undefined}
+				liveStatus={isCounselStreaming ? counselStore.chatStatus : undefined}
+			/>
+		{/if}
 		{#if showRawOutput}
 			<pre class="raw-output">{messageContent || ''}</pre>
 		{:else if isStructuredContent}

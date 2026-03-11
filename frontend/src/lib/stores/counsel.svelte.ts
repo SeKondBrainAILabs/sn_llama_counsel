@@ -1,6 +1,6 @@
 /**
  * counsel.svelte.ts — State management for AI Counsel feature
- * Mirrors the pattern from chat.svelte.ts using Svelte 5 runes.
+ * Manages counsel selection for the chat form and transient streaming state.
  */
 
 export interface CounselMember {
@@ -29,6 +29,19 @@ export interface MemberResponse {
 	error?: string;
 }
 
+/** Persisted deliberation data stored in message.extra */
+export interface CounselDeliberation {
+	type: 'counsel_deliberation';
+	counselName: string;
+	chairpersonModel: string;
+	members: {
+		role: string;
+		model: string;
+		content: string;
+		error?: string;
+	}[];
+}
+
 export type CounselStatus = 'idle' | 'running_members' | 'running_synthesis' | 'done' | 'error';
 
 class CounselStore {
@@ -36,15 +49,38 @@ class CounselStore {
 	counsels = $state<CounselConfig[]>([]);
 	counselsLoading = $state(false);
 
-	// Current session
+	// ── Chat-mode selection (replaces model selector) ───────────────────
+	selectedForChat = $state<CounselConfig | null>(null);
+
+	get isCounselMode(): boolean {
+		return this.selectedForChat !== null;
+	}
+
+	selectForChat(counsel: CounselConfig) {
+		this.selectedForChat = counsel;
+	}
+
+	clearChatSelection() {
+		this.selectedForChat = null;
+	}
+
+	// ── Transient streaming state (live UI in chat messages) ────────────
+	chatMemberResponses = $state<MemberResponse[]>([]);
+	chatStatus = $state<CounselStatus>('idle');
+
+	/** Reset transient chat streaming state */
+	clearChatStreaming() {
+		this.chatMemberResponses = [];
+		this.chatStatus = 'idle';
+	}
+
+	// ── Standalone counsel page state (kept for backward compat) ────────
 	selectedCounsel = $state<CounselConfig | null>(null);
 	task = $state('');
 	status = $state<CounselStatus>('idle');
 	memberResponses = $state<MemberResponse[]>([]);
 	synthesisTokens = $state<string[]>([]);
 	error = $state<string | null>(null);
-
-	// Auto-select state
 	autoSelectLoading = $state(false);
 
 	private abortController: AbortController | null = null;
@@ -59,6 +95,7 @@ class CounselStore {
 	}
 
 	async fetchCounsels() {
+		if (this.counsels.length > 0 && !this.counselsLoading) return; // already loaded
 		this.counselsLoading = true;
 		try {
 			const res = await fetch('/api/counsels');
@@ -67,6 +104,20 @@ class CounselStore {
 			if (!this.selectedCounsel && this.counsels.length > 0) {
 				this.selectedCounsel = this.counsels[0];
 			}
+		} catch (e) {
+			console.error('[counsel] failed to fetch counsels:', e);
+		} finally {
+			this.counselsLoading = false;
+		}
+	}
+
+	/** Force re-fetch (e.g. when opening selector) */
+	async refreshCounsels() {
+		this.counselsLoading = true;
+		try {
+			const res = await fetch('/api/counsels');
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			this.counsels = await res.json();
 		} catch (e) {
 			console.error('[counsel] failed to fetch counsels:', e);
 		} finally {
@@ -96,7 +147,6 @@ class CounselStore {
 	async run(task: string, counsel: CounselConfig) {
 		if (this.status === 'running_members' || this.status === 'running_synthesis') return;
 
-		// Reset state
 		this.task = task;
 		this.status = 'running_members';
 		this.error = null;

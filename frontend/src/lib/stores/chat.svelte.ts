@@ -16,6 +16,7 @@ import { DatabaseService, ChatService } from '$lib/services';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
 import { agenticStore } from '$lib/stores/agentic.svelte';
+import { counselStore, type CounselConfig, type MemberResponse } from '$lib/stores/counsel.svelte';
 import { mcpStore } from '$lib/stores/mcp.svelte';
 import { contextSize, isRouterMode } from '$lib/stores/server.svelte';
 import {
@@ -731,6 +732,19 @@ class ChatStore {
 			if (agenticResult.handled) return;
 		}
 
+		// ── Counsel mode: route through /api/counsel/run instead ────────
+		if (counselStore.isCounselMode && counselStore.selectedForChat) {
+			const lastUserMsg = allMessages.filter((m) => m.role === MessageRole.USER).pop();
+			await this.streamCounselCompletion(
+				lastUserMsg?.content || '',
+				counselStore.selectedForChat,
+				assistantMessage,
+				abortController,
+				streamCallbacks
+			);
+			return;
+		}
+
 		const completionOptions = {
 			...this.getApiOptions(),
 			...(effectiveModel ? { model: effectiveModel } : {}),
@@ -743,6 +757,163 @@ class ChatStore {
 			assistantMessage.convId,
 			abortController.signal
 		);
+	}
+
+	// ── Counsel streaming ──────────────────────────────────────────────
+	// Handles the custom SSE format from /api/counsel/run.
+	// Member tokens update the live deliberation panel; synthesis tokens
+	// feed into the same appendContentChunk() pipeline as normal chat.
+
+	private async streamCounselCompletion(
+		task: string,
+		counsel: CounselConfig,
+		assistantMessage: DatabaseMessage,
+		abortController: AbortController,
+		callbacks: ChatStreamCallbacks
+	): Promise<void> {
+		// Initialize transient streaming state
+		counselStore.chatStatus = 'running_members';
+		counselStore.chatMemberResponses = counsel.members.map((m) => ({
+			role: m.role,
+			model: m.model,
+			tokens: [],
+			done: false
+		}));
+
+		// Record chairperson model on the message
+		const idx0 = conversationsStore.findMessageIndex(assistantMessage.id);
+		conversationsStore.updateMessageAtIndex(idx0, { model: counsel.chairperson.model });
+
+		try {
+			const res = await fetch('/api/counsel/run', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ task, counsel }),
+				signal: abortController.signal
+			});
+
+			if (!res.ok) {
+				const txt = await res.text();
+				throw new Error(`Counsel API error: HTTP ${res.status}: ${txt}`);
+			}
+
+			const reader = res.body!.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+
+				const lines = buffer.split('\n');
+				buffer = lines.pop() ?? '';
+
+				for (const line of lines) {
+					if (!line.startsWith('data: ')) continue;
+					const raw = line.slice(6).trim();
+					if (!raw || raw === '[DONE]') continue;
+
+					try {
+						const event = JSON.parse(raw) as {
+							type: string;
+							role?: string;
+							model?: string;
+							token?: string;
+							error?: string;
+						};
+
+						switch (event.type) {
+							case 'member_token': {
+								const mi = counselStore.chatMemberResponses.findIndex(
+									(r) => r.role === event.role
+								);
+								if (mi !== -1) {
+									counselStore.chatMemberResponses[mi].tokens.push(event.token ?? '');
+								}
+								break;
+							}
+							case 'member_done': {
+								const mi = counselStore.chatMemberResponses.findIndex(
+									(r) => r.role === event.role
+								);
+								if (mi !== -1) {
+									counselStore.chatMemberResponses[mi].done = true;
+								}
+								break;
+							}
+							case 'member_error': {
+								const mi = counselStore.chatMemberResponses.findIndex(
+									(r) => r.role === event.role
+								);
+								if (mi !== -1) {
+									counselStore.chatMemberResponses[mi].done = true;
+									counselStore.chatMemberResponses[mi].error = event.error;
+								}
+								break;
+							}
+							case 'members_done': {
+								counselStore.chatStatus = 'running_synthesis';
+								break;
+							}
+							case 'synthesis_token': {
+								// Feed into the normal chat content pipeline
+								callbacks.onChunk?.(event.token ?? '');
+								break;
+							}
+							case 'done': {
+								counselStore.chatStatus = 'done';
+								break;
+							}
+							case 'error': {
+								throw new Error(event.error ?? 'Counsel run error');
+							}
+						}
+					} catch (parseErr) {
+						if (parseErr instanceof Error && parseErr.message.startsWith('Counsel')) {
+							throw parseErr;
+						}
+						console.warn('[counsel] SSE parse error:', parseErr, 'line:', line);
+					}
+				}
+			}
+
+			// Build persisted deliberation data
+			const deliberation = {
+				type: 'counsel_deliberation' as const,
+				counselName: counsel.name,
+				chairpersonModel: counsel.chairperson.model,
+				members: counselStore.chatMemberResponses.map((m) => ({
+					role: m.role,
+					model: m.model,
+					content: m.tokens.join(''),
+					...(m.error ? { error: m.error } : {})
+				}))
+			};
+
+			// Call onComplete with the extras containing deliberation data
+			const existingExtras: DatabaseMessageExtra[] = assistantMessage.extra
+				? JSON.parse(JSON.stringify(assistantMessage.extra))
+				: [];
+			existingExtras.push(deliberation as unknown as DatabaseMessageExtra);
+
+			// Update message extras with deliberation data
+			const idx = conversationsStore.findMessageIndex(assistantMessage.id);
+			conversationsStore.updateMessageAtIndex(idx, { extra: existingExtras });
+			await DatabaseService.updateMessage(assistantMessage.id, { extra: existingExtras });
+
+			// Signal completion through normal callback chain
+			callbacks.onComplete?.();
+		} catch (e: unknown) {
+			if (e instanceof Error && e.name === 'AbortError') {
+				callbacks.onError?.(e);
+			} else {
+				const error = e instanceof Error ? e : new Error(String(e));
+				callbacks.onError?.(error);
+			}
+		} finally {
+			counselStore.clearChatStreaming();
+		}
 	}
 
 	async stopGeneration(): Promise<void> {
