@@ -99,7 +99,7 @@ export default defineConfig({
 			'/models': LLAMA_SERVER,
 			'/cors-proxy': LLAMA_SERVER,
 			// Proxy counsel API calls to FastAPI during dev (npm run dev -- with backend running)
-			'/api': 'http://localhost:5000'
+			'/api': 'http://localhost:5050'
 		},
 		headers: {
 			'Cross-Origin-Embedder-Policy': 'require-corp',

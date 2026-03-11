@@ -7,6 +7,13 @@ Serves:
   GET  /api/models              → proxy to llama-server /v1/models
   POST /api/counsel/run         → SSE: fan-out + synthesis stream
   POST /api/counsel/auto-select → auto-select best council for task
+
+  # Reverse-proxy to llama-server (via mitmweb :8080 → :11434)
+  GET|POST /v1/*                → proxy
+  GET      /props               → proxy
+  GET      /models              → proxy
+  GET      /slots               → proxy
+  *        /cors-proxy/*        → proxy
 """
 from __future__ import annotations
 
@@ -16,7 +23,7 @@ from pathlib import Path
 
 import httpx
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -135,6 +142,76 @@ async def counsel_auto_select(req: AutoSelectRequest):
         req.task, _counsels, DEFAULT_MODEL, API_BASE, API_KEY
     )
     return AutoSelectResponse(counsel=selected)
+
+
+# ── Reverse proxy to llama-server ──────────────────────────────────────────
+# The Svelte UI calls /props, /v1/*, /models, /slots on the same origin.
+# We proxy these through to llama-server (via mitmweb at API_BASE) so the
+# existing chat UI works and all calls are visible in the mitmweb inspector.
+
+_proxy_client = httpx.AsyncClient(timeout=300.0)  # long timeout for streaming
+
+
+async def _proxy_request(request: Request, path: str) -> StreamingResponse:
+    """Forward an incoming request to llama-server and stream the response back."""
+    url = f"{API_BASE}/{path}"
+    headers = dict(request.headers)
+    # Remove hop-by-hop headers
+    for h in ("host", "transfer-encoding", "connection"):
+        headers.pop(h, None)
+    if API_KEY and API_KEY != "none":
+        headers["authorization"] = f"Bearer {API_KEY}"
+
+    body = await request.body()
+
+    req = _proxy_client.build_request(
+        method=request.method,
+        url=url,
+        headers=headers,
+        content=body if body else None,
+        params=request.query_params,
+    )
+
+    try:
+        resp = await _proxy_client.send(req, stream=True)
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=502, detail=f"llama-server unreachable at {API_BASE}: {exc}") from exc
+
+    resp_headers = dict(resp.headers)
+    for h in ("transfer-encoding", "content-encoding", "content-length"):
+        resp_headers.pop(h, None)
+
+    return StreamingResponse(
+        resp.aiter_raw(),
+        status_code=resp.status_code,
+        headers=resp_headers,
+        media_type=resp.headers.get("content-type", "application/json"),
+    )
+
+
+@app.api_route("/props", methods=["GET"])
+async def proxy_props(request: Request):
+    return await _proxy_request(request, "props")
+
+
+@app.api_route("/models", methods=["GET"])
+async def proxy_models(request: Request):
+    return await _proxy_request(request, "models")
+
+
+@app.api_route("/slots", methods=["GET"])
+async def proxy_slots(request: Request):
+    return await _proxy_request(request, "slots")
+
+
+@app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+async def proxy_v1(request: Request, path: str):
+    return await _proxy_request(request, f"v1/{path}")
+
+
+@app.api_route("/cors-proxy/{path:path}", methods=["GET", "POST"])
+async def proxy_cors(request: Request, path: str):
+    return await _proxy_request(request, f"cors-proxy/{path}")
 
 
 # ── Static file serving (Svelte UI) ────────────────────────────────────────
