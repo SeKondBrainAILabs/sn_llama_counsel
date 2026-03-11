@@ -193,8 +193,12 @@ async def _proxy_request(request: Request, path: str) -> StreamingResponse:
 async def proxy_props(request: Request):
     """Proxy /props to llama-server; return a fallback if unreachable."""
     try:
-        return await _proxy_request(request, "props")
-    except HTTPException:
+        resp = await _proxy_request(request, "props")
+        # Check if the proxied response is an error (mitmweb/upstream failure)
+        if resp.status_code >= 500:
+            raise Exception("upstream error")
+        return resp
+    except Exception:
         # llama-server not running — return minimal router-mode props
         # so the Svelte UI doesn't show "Server unavailable" and counsel still works
         return JSONResponse({
