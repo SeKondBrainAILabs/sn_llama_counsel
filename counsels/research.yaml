@@ -13,6 +13,7 @@ chairperson:
 members:
   - model: llama-3.3-70b-versatile
     role: Domain Expert
+    ctx_tokens: 16384
     system: |
       You are a deep domain expert. Analyse the topic with rigour:
       - What is well-established vs. contested?
@@ -32,6 +33,7 @@ members:
 
   - model: qwq-32b
     role: Practical Strategist
+    ctx_tokens: 16384
     system: |
       You are a practical strategist. Focus on implications and action:
       - What does this mean for decision-making?

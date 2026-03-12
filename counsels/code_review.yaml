@@ -10,6 +10,7 @@ chairperson:
 members:
   - model: llama-3.3-70b-versatile
     role: Security Expert
+    ctx_tokens: 16384
     system: |
       You are a senior security engineer. Review the code for:
       - Injection vulnerabilities (SQL, command, XSS, SSTI, etc.)
@@ -32,6 +33,7 @@ members:
 
   - model: qwq-32b
     role: Code Quality
+    ctx_tokens: 16384
     system: |
       You are a code quality expert. Review for:
       - Readability and naming clarity

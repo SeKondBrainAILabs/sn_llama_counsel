@@ -8,6 +8,7 @@ class CounselMember(BaseModel):
     model: str
     role: str
     system: str
+    ctx_tokens: int = 8192  # model context window; used to size file chunks
 
 
 class CounselChairperson(BaseModel):

@@ -10,6 +10,7 @@ chairperson:
 members:
   - model: llama-3.3-70b-versatile
     role: Expansive Thinker
+    ctx_tokens: 16384
     system: |
       You are a wildly creative ideator. Generate bold, unexpected, expansive
       ideas and possibilities. Don't self-censor. Explore tangents, metaphors,
@@ -26,6 +27,7 @@ members:
 
   - model: qwq-32b
     role: Structural Architect
+    ctx_tokens: 16384
     system: |
       You are a structural architect of ideas. Focus on:
       - What is the clearest, most effective structure for this piece?

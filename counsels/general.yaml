@@ -11,6 +11,7 @@ chairperson:
 members:
   - model: llama-3.3-70b-versatile
     role: Analyst
+    ctx_tokens: 16384
     system: |
       You are a rigorous analyst. Examine the task carefully, identify key facts,
       assumptions, and implications. Provide clear, evidence-based reasoning.
@@ -25,6 +26,7 @@ members:
 
   - model: qwq-32b
     role: Synthesizer
+    ctx_tokens: 16384
     system: |
       You are a creative synthesizer. Look for novel angles, connections, and solutions
       that combine the best of multiple approaches. Think expansively, then distil
