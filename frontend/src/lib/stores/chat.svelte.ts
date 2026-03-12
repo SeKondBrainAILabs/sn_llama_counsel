@@ -769,24 +769,85 @@ class ChatStore {
 	// Member tokens update the live deliberation panel; synthesis tokens
 	// feed into the same appendContentChunk() pipeline as normal chat.
 
-	/** Extract image/text/pdf file parts from DatabaseMessageExtra[] for counsel POST body. */
+	/** Extract image/text/pdf file parts from DatabaseMessageExtra[] for counsel POST body.
+	 *  Enforces size limits to avoid 400 errors from large payloads:
+	 *  - Text files: truncated to MAX_TEXT_PART_SIZE chars each
+	 *  - Images: skipped if base64 > MAX_IMAGE_BASE64_SIZE (replaced with text note)
+	 *  - Total text budget: MAX_TOTAL_TEXT_SIZE across all text parts
+	 */
 	private extractFilePartsFromExtras(
 		extras?: DatabaseMessageExtra[]
 	): Array<{ type: string; text?: string; image_url?: { url: string } }> {
 		if (!extras || extras.length === 0) return [];
+
+		const MAX_TEXT_PART_SIZE = 32_000; // ~32KB per individual text file
+		const MAX_IMAGE_BASE64_SIZE = 4_000_000; // ~4MB base64 (≈3MB raw image)
+		const MAX_TOTAL_TEXT_SIZE = 200_000; // ~200KB total text budget
+		let totalTextSize = 0;
+
 		const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
 		for (const extra of extras) {
 			if (extra.type === 'IMAGE' && 'base64Url' in extra) {
-				parts.push({ type: 'image_url', image_url: { url: extra.base64Url } });
+				if (extra.base64Url.length > MAX_IMAGE_BASE64_SIZE) {
+					const sizeMB = (extra.base64Url.length / 1_000_000).toFixed(1);
+					const note = `\n\n--- Image: ${'name' in extra ? extra.name : 'image'} (${sizeMB}MB, too large to send to counsel members) ---`;
+					parts.push({ type: 'text', text: note });
+					totalTextSize += note.length;
+				} else {
+					parts.push({ type: 'image_url', image_url: { url: extra.base64Url } });
+				}
 			} else if (extra.type === 'TEXT' && 'content' in extra) {
-				parts.push({ type: 'text', text: `\n\n--- File: ${extra.name} ---\n${extra.content}` });
+				let content = extra.content;
+				if (content.length > MAX_TEXT_PART_SIZE) {
+					const originalLen = content.length;
+					content =
+						content.substring(0, MAX_TEXT_PART_SIZE) +
+						`\n\n... [truncated — showing first ${MAX_TEXT_PART_SIZE.toLocaleString()} of ${originalLen.toLocaleString()} chars]`;
+				}
+				const text = `\n\n--- File: ${extra.name} ---\n${content}`;
+				if (totalTextSize + text.length > MAX_TOTAL_TEXT_SIZE) {
+					parts.push({
+						type: 'text',
+						text: `\n\n--- File: ${extra.name} (skipped — total text budget exceeded) ---`
+					});
+					break;
+				}
+				totalTextSize += text.length;
+				parts.push({ type: 'text', text });
 			} else if (extra.type === 'PDF' && 'content' in extra) {
-				if ('processedAsImages' in extra && extra.processedAsImages && 'images' in extra && extra.images) {
+				if (
+					'processedAsImages' in extra &&
+					extra.processedAsImages &&
+					'images' in extra &&
+					extra.images
+				) {
 					for (const img of extra.images) {
-						parts.push({ type: 'image_url', image_url: { url: img } });
+						if (img.length > MAX_IMAGE_BASE64_SIZE) {
+							parts.push({
+								type: 'text',
+								text: `\n\n--- PDF page image (${(img.length / 1_000_000).toFixed(1)}MB, too large) ---`
+							});
+						} else {
+							parts.push({ type: 'image_url', image_url: { url: img } });
+						}
 					}
 				} else {
-					parts.push({ type: 'text', text: `\n\n--- PDF: ${extra.name} ---\n${extra.content}` });
+					let content = extra.content;
+					if (content.length > MAX_TEXT_PART_SIZE) {
+						content =
+							content.substring(0, MAX_TEXT_PART_SIZE) +
+							`\n\n... [truncated — showing first ${MAX_TEXT_PART_SIZE.toLocaleString()} of ${content.length.toLocaleString()} chars]`;
+					}
+					const text = `\n\n--- PDF: ${extra.name} ---\n${content}`;
+					if (totalTextSize + text.length > MAX_TOTAL_TEXT_SIZE) {
+						parts.push({
+							type: 'text',
+							text: `\n\n--- PDF: ${extra.name} (skipped — total text budget exceeded) ---`
+						});
+						break;
+					}
+					totalTextSize += text.length;
+					parts.push({ type: 'text', text });
 				}
 			}
 			// Skip AUDIO, MCP_PROMPT, etc. — not useful for counsel text analysis
