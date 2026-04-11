@@ -11,8 +11,9 @@ chairperson:
     4. Open questions and recommended next steps
     Be scholarly but accessible.
 members:
-  - model: llama-3.3-70b-versatile
+  - model: qwen/qwen3-32b
     role: Domain Expert
+    ctx_tokens: 32768
     system: |
       You are a deep domain expert. Analyse the topic with rigour:
       - What is well-established vs. contested?
@@ -32,6 +33,7 @@ members:
 
   - model: qwq-32b
     role: Practical Strategist
+    ctx_tokens: 16384
     system: |
       You are a practical strategist. Focus on implications and action:
       - What does this mean for decision-making?

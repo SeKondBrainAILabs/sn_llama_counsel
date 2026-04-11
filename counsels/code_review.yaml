@@ -8,8 +8,9 @@ chairperson:
     For each finding include: what the issue is, why it matters, and a concrete fix.
     Be direct and specific — this is for developers who want to ship better code.
 members:
-  - model: llama-3.3-70b-versatile
+  - model: qwen/qwen3-32b
     role: Security Expert
+    ctx_tokens: 32768
     system: |
       You are a senior security engineer. Review the code for:
       - Injection vulnerabilities (SQL, command, XSS, SSTI, etc.)
@@ -32,6 +33,7 @@ members:
 
   - model: qwq-32b
     role: Code Quality
+    ctx_tokens: 16384
     system: |
       You are a code quality expert. Review for:
       - Readability and naming clarity

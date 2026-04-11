@@ -1,18 +1,27 @@
 <script lang="ts">
+	import type { MemberUsage } from '$lib/stores/counsel.svelte';
+
 	interface Props {
 		tokens: string[];
 		chairpersonModel: string;
 		running: boolean;
 		waitingForMembers: boolean;
+		totalUsage?: MemberUsage | null;
 	}
 
-	let { tokens, chairpersonModel, running, waitingForMembers }: Props = $props();
+	let { tokens, chairpersonModel, running, waitingForMembers, totalUsage = null }: Props = $props();
 
 	let text = $derived(tokens.join(''));
 	let isStreaming = $derived(running && !waitingForMembers);
 </script>
 
-<div class="rounded-lg border bg-card shadow-sm {isStreaming ? 'border-amber-500/30' : text ? 'border-green-500/20' : ''}">
+<div
+	class="rounded-lg border bg-card shadow-sm {isStreaming
+		? 'border-amber-500/30'
+		: text
+			? 'border-green-500/20'
+			: ''}"
+>
 	<!-- Header -->
 	<div class="flex items-center gap-2 border-b px-4 py-3">
 		<span class="text-lg leading-none">⚖</span>
@@ -25,12 +34,18 @@
 				Waiting for council…
 			</span>
 		{:else if isStreaming}
-			<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+			<span
+				class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+			>
 				<span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"></span>
 				Synthesizing
 			</span>
 		{:else if text}
-			<span class="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">Done</span>
+			<span
+				class="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400"
+			>
+				Done
+			</span>
 		{/if}
 	</div>
 
@@ -50,4 +65,14 @@
 			</p>
 		{/if}
 	</div>
+
+	{#if totalUsage && (totalUsage.prompt > 0 || totalUsage.completion > 0)}
+		<div class="flex items-center justify-between gap-3 border-t px-4 py-2 text-[11px] text-muted-foreground">
+			<span>Total usage</span>
+			<span>
+				{totalUsage.prompt.toLocaleString()} prompt tokens /
+				{totalUsage.completion.toLocaleString()} completion tokens
+			</span>
+		</div>
+	{/if}
 </div>

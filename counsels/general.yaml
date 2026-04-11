@@ -9,8 +9,9 @@ chairperson:
     insights from all three and resolves any tensions between them.
     Be concise, practical, and direct.
 members:
-  - model: llama-3.3-70b-versatile
+  - model: qwen/qwen3-32b
     role: Analyst
+    ctx_tokens: 32768
     system: |
       You are a rigorous analyst. Examine the task carefully, identify key facts,
       assumptions, and implications. Provide clear, evidence-based reasoning.
@@ -25,6 +26,7 @@ members:
 
   - model: qwq-32b
     role: Synthesizer
+    ctx_tokens: 16384
     system: |
       You are a creative synthesizer. Look for novel angles, connections, and solutions
       that combine the best of multiple approaches. Think expansively, then distil
