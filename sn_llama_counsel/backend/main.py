@@ -30,10 +30,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .persistence import PersistenceStore
 from .runner import run_counsel
 from .schemas import (
     AutoSelectRequest, AutoSelectResponse, CounselConfig,
-    CreateCounselRequest, RunRequest,
+    CreateCounselRequest, RunRequest, SessionCreate, SessionInfo,
 )
 from .selector import auto_select_counsel
 
@@ -58,6 +59,12 @@ API_KEY: str = os.environ.get("LLAMA_API_KEY", _cfg.get("api_key", "none"))
 DEFAULT_MODEL: str = os.environ.get("LLAMA_DEFAULT_MODEL", _cfg.get("default_model", "llama-3.1-8b-instant"))
 COUNSELS_DIR: Path = _HERE / "counsels"
 FRONTEND_DIR: Path = _HERE / "frontend-dist"
+
+_DEFAULT_DB_PATH = Path(os.path.expanduser("~/.llama-counsel/counsel.db"))
+DB_PATH: Path = Path(
+    os.environ.get("LLAMA_COUNSEL_DB", _cfg.get("db_path", str(_DEFAULT_DB_PATH)))
+).expanduser()
+_store: PersistenceStore = PersistenceStore(DB_PATH)
 
 # ── Load counsel configs ────────────────────────────────────────────────────
 
@@ -120,12 +127,16 @@ async def counsel_run(req: RunRequest):
     SSE endpoint — streams the full counsel run.
 
     Event format:
+      data: {"type": "run_created",     "run_id": "...", "session_id": "..."}
       data: {"type": "member_token",    "role": "...", "model": "...", "token": "..."}
       data: {"type": "member_done",     "role": "..."}
       data: {"type": "member_error",    "role": "...", "error": "..."}
+      data: {"type": "usage",           "role": "...", "prompt_tokens": n, "completion_tokens": n}
       data: {"type": "members_done"}
       data: {"type": "synthesis_token", "token": "..."}
+      data: {"type": "run_saved",       "run_id": "...", "status": "completed"}
       data: {"type": "done"}
+      data: {"type": "cancelled",       "run_id": "..."}
       data: {"type": "error",           "error": "..."}
     """
     files_data = (
@@ -133,13 +144,59 @@ async def counsel_run(req: RunRequest):
         if req.files else None
     )
     return StreamingResponse(
-        run_counsel(req.task, req.counsel, API_BASE, API_KEY, files_data),
+        run_counsel(
+            req.task,
+            req.counsel,
+            API_BASE,
+            API_KEY,
+            files_data,
+            store=_store,
+            session_id=req.session_id,
+            parent_run_id=req.parent_run_id,
+            member_overrides=req.member_overrides,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Session / run history endpoints ───────────────────────────────────────
+
+@app.post("/api/sessions", response_model=SessionInfo)
+async def session_create(body: SessionCreate):
+    session = await _store.create_session(title=body.title or "")
+    return SessionInfo(**session, run_count=0)
+
+
+@app.get("/api/sessions", response_model=list[SessionInfo])
+async def session_list():
+    rows = await _store.list_sessions()
+    return [SessionInfo(**row) for row in rows]
+
+
+@app.get("/api/sessions/{session_id}/runs")
+async def session_runs(session_id: str):
+    runs = await _store.list_runs(session_id)
+    return runs
+
+
+@app.get("/api/runs/{run_id}")
+async def run_get(run_id: str):
+    run = await _store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
+
+
+@app.delete("/api/sessions/{session_id}")
+async def session_delete(session_id: str):
+    ok = await _store.delete_session(session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True}
 
 
 @app.post("/api/counsel/auto-select", response_model=AutoSelectResponse)

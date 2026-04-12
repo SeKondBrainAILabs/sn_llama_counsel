@@ -735,17 +735,35 @@ class ChatStore {
 		// ── Counsel mode: route through /api/counsel/run instead ────────
 		if (counselStore.isCounselMode && counselStore.selectedForChat) {
 			const lastUserMsg = allMessages.filter((m) => m.role === MessageRole.USER).pop();
-			// Extract file content parts from user message extras
-			const fileParts = this.extractFilePartsFromExtras(
-				(lastUserMsg as DatabaseMessage | undefined)?.extra
-			);
+
+			// Look back for the most recent assistant message whose extras
+			// contain a counsel_deliberation — that's the parent of this run.
+			let parentRunId: string | undefined;
+			let sessionId: string | undefined;
+			for (let i = allMessages.length - 1; i >= 0; i--) {
+				const m = allMessages[i];
+				if (m.role !== MessageRole.ASSISTANT) continue;
+				const extras = (m as unknown as { extra?: unknown[] }).extra;
+				if (!Array.isArray(extras)) continue;
+				const delib = extras.find(
+					(x) => (x as { type?: string })?.type === 'counsel_deliberation'
+				) as
+					| { runId?: string; sessionId?: string }
+					| undefined;
+				if (delib) {
+					parentRunId = delib.runId;
+					sessionId = delib.sessionId;
+					break;
+				}
+			}
+
 			await this.streamCounselCompletion(
 				lastUserMsg?.content || '',
 				counselStore.selectedForChat,
 				assistantMessage,
 				abortController,
 				streamCallbacks,
-				fileParts.length > 0 ? fileParts : undefined
+				{ parentRunId, sessionId }
 			);
 			return;
 		}
@@ -769,46 +787,13 @@ class ChatStore {
 	// Member tokens update the live deliberation panel; synthesis tokens
 	// feed into the same appendContentChunk() pipeline as normal chat.
 
-	/** Extract image/text/pdf file parts from DatabaseMessageExtra[] for counsel POST body.
-	 *  No size limits — the backend handles chunking large content across
-	 *  multiple LLM calls so every file is analysed in full.
-	 */
-	private extractFilePartsFromExtras(
-		extras?: DatabaseMessageExtra[]
-	): Array<{ type: string; text?: string; image_url?: { url: string } }> {
-		if (!extras || extras.length === 0) return [];
-		const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-		for (const extra of extras) {
-			if (extra.type === 'IMAGE' && 'base64Url' in extra) {
-				parts.push({ type: 'image_url', image_url: { url: extra.base64Url } });
-			} else if (extra.type === 'TEXT' && 'content' in extra) {
-				parts.push({ type: 'text', text: `\n\n--- File: ${extra.name} ---\n${extra.content}` });
-			} else if (extra.type === 'PDF' && 'content' in extra) {
-				if (
-					'processedAsImages' in extra &&
-					extra.processedAsImages &&
-					'images' in extra &&
-					extra.images
-				) {
-					for (const img of extra.images) {
-						parts.push({ type: 'image_url', image_url: { url: img } });
-					}
-				} else {
-					parts.push({ type: 'text', text: `\n\n--- PDF: ${extra.name} ---\n${extra.content}` });
-				}
-			}
-			// Skip AUDIO, MCP_PROMPT, etc. — not useful for counsel text analysis
-		}
-		return parts;
-	}
-
 	private async streamCounselCompletion(
 		task: string,
 		counsel: CounselConfig,
 		assistantMessage: DatabaseMessage,
 		abortController: AbortController,
 		callbacks: ChatStreamCallbacks,
-		files?: Array<{ type: string; text?: string; image_url?: { url: string } }>
+		context: { parentRunId?: string; sessionId?: string } = {}
 	): Promise<void> {
 		// Initialize transient streaming state
 		counselStore.chatStatus = 'running_members';
@@ -816,22 +801,33 @@ class ChatStore {
 			role: m.role,
 			model: m.model,
 			tokens: [],
-			done: false
+			done: false,
+			startedAt: null,
+			finishedAt: null,
+			usage: null
 		}));
+
+		// Capture run/session IDs and per-member usage as they arrive so we
+		// can embed them in the persisted deliberation extras at the end.
+		let runId: string | undefined;
+		let sessionId: string | undefined = context.sessionId;
+		const memberUsage: Record<string, { prompt: number; completion: number }> = {};
+		let chairUsage: { prompt: number; completion: number } = { prompt: 0, completion: 0 };
 
 		// Record chairperson model on the message
 		const idx0 = conversationsStore.findMessageIndex(assistantMessage.id);
 		conversationsStore.updateMessageAtIndex(idx0, { model: counsel.chairperson.model });
 
 		try {
-			const body: Record<string, unknown> = { task, counsel };
-			if (files && files.length > 0) {
-				body.files = files;
-			}
 			const res = await fetch('/api/counsel/run', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(body),
+				body: JSON.stringify({
+					task,
+					counsel,
+					session_id: sessionId,
+					parent_run_id: context.parentRunId
+				}),
 				signal: abortController.signal
 			});
 
@@ -864,15 +860,26 @@ class ChatStore {
 							model?: string;
 							token?: string;
 							error?: string;
+							run_id?: string;
+							session_id?: string;
+							prompt_tokens?: number;
+							completion_tokens?: number;
 						};
 
 						switch (event.type) {
+							case 'run_created': {
+								if (event.run_id) runId = event.run_id;
+								if (event.session_id) sessionId = event.session_id;
+								break;
+							}
 							case 'member_token': {
 								const mi = counselStore.chatMemberResponses.findIndex(
 									(r) => r.role === event.role
 								);
 								if (mi !== -1) {
-									counselStore.chatMemberResponses[mi].tokens.push(event.token ?? '');
+									const m = counselStore.chatMemberResponses[mi];
+									if (m.startedAt === null) m.startedAt = Date.now();
+									m.tokens.push(event.token ?? '');
 								}
 								break;
 							}
@@ -882,6 +889,7 @@ class ChatStore {
 								);
 								if (mi !== -1) {
 									counselStore.chatMemberResponses[mi].done = true;
+									counselStore.chatMemberResponses[mi].finishedAt = Date.now();
 								}
 								break;
 							}
@@ -891,7 +899,26 @@ class ChatStore {
 								);
 								if (mi !== -1) {
 									counselStore.chatMemberResponses[mi].done = true;
+									counselStore.chatMemberResponses[mi].finishedAt = Date.now();
 									counselStore.chatMemberResponses[mi].error = event.error;
+								}
+								break;
+							}
+							case 'usage': {
+								const usage = {
+									prompt: event.prompt_tokens ?? 0,
+									completion: event.completion_tokens ?? 0
+								};
+								if (event.role === '__chair__') {
+									chairUsage = usage;
+								} else if (event.role) {
+									memberUsage[event.role] = usage;
+									const mi = counselStore.chatMemberResponses.findIndex(
+										(r) => r.role === event.role
+									);
+									if (mi !== -1) {
+										counselStore.chatMemberResponses[mi].usage = usage;
+									}
 								}
 								break;
 							}
@@ -902,6 +929,14 @@ class ChatStore {
 							case 'synthesis_token': {
 								// Feed into the normal chat content pipeline
 								callbacks.onChunk?.(event.token ?? '');
+								break;
+							}
+							case 'run_saved': {
+								if (event.run_id) runId = event.run_id;
+								break;
+							}
+							case 'cancelled': {
+								counselStore.chatStatus = 'idle';
 								break;
 							}
 							case 'done': {
@@ -931,7 +966,10 @@ class ChatStore {
 					model: m.model,
 					content: m.tokens.join(''),
 					...(m.error ? { error: m.error } : {})
-				}))
+				})),
+				usage: { members: memberUsage, chair: chairUsage },
+				runId,
+				sessionId
 			};
 
 			// Call onComplete with the extras containing deliberation data
