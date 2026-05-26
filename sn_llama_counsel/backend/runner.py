@@ -274,15 +274,20 @@ async def _do_stream_member(
             if not choices:
                 continue
             delta = choices[0].get("delta") or {}
+            # Reasoning models (Qwen3, QwQ) emit thinking in
+            # "reasoning_content" before emitting "content".
+            # Stream both so the UI is never blank.
             token = delta.get("content") or ""
-            if token:
-                full_text += token
+            reasoning = delta.get("reasoning_content") or ""
+            combined = token or reasoning
+            if combined:
+                full_text += combined
                 await queue.put(
                     _sse({
                         "type": "member_token",
                         "role": member.role,
                         "model": member.model,
-                        "token": token,
+                        "token": combined,
                     })
                 )
     return full_text, prompt_tokens, completion_tokens
@@ -489,10 +494,14 @@ async def _stream_synthesis(
                 if not choices:
                     continue
                 delta = choices[0].get("delta") or {}
+                # Reasoning models (Qwen3, QwQ) emit thinking in
+                # "reasoning_content" before emitting "content".
                 token = delta.get("content") or ""
-                if token:
-                    full_text += token
-                    await queue.put(_sse({"type": "synthesis_token", "token": token}))
+                reasoning = delta.get("reasoning_content") or ""
+                combined = token or reasoning
+                if combined:
+                    full_text += combined
+                    await queue.put(_sse({"type": "synthesis_token", "token": combined}))
         await queue.put(
             _sse({
                 "type": "usage",
